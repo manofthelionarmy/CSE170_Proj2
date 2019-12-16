@@ -53,6 +53,8 @@ ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int
 
 	cmd(WsViewer::VCmdAxis);
 
+	view_all();
+
 	show();
 }
 
@@ -63,7 +65,7 @@ int ParametricCurveViewer::handle(const GsEvent& e)
 		if (e.key == GsEvent::KeyEsc) ws_exit();
 	}
 
-	return WsViewer::handle_scene_event(e);
+	return WsViewer::handle(e);
 }
 
 int ParametricCurveViewer::handle_scene_event(const GsEvent& e)
@@ -79,6 +81,8 @@ ScnViewer::ScnViewer(SnNode* n, int x, int y, int w, int h) : WsViewer(x, y, w, 
 {
 
 	cmd(WsViewer::VCmdAxis);
+
+	view_all();
 
 	show();
 }
