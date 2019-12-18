@@ -145,7 +145,7 @@ ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int
 
 	cmd(WsViewer::VCmdAxis);
 
-	//view_all();
+	view_all();
 
 	rootg()->add(_polyed = new SnPolyEditor);
 	rootg()->add(_curve = new SnLines2);
