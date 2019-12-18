@@ -4,10 +4,12 @@
 # include <sig/sn_group.h>
 # include <sig/sn_lines2.h>
 # include <sig/sn_poly_editor.h>
+# include <sig/sn_manipulator.h>
+# include <sig/sn_primitive.h>
 
 # include <sigogl/ws_viewer.h>
 # include <sigogl/ws_run.h>
-#include<sig/sn_transform.h>
+# include <sig/sn_transform.h>
 
 
 
@@ -27,17 +29,25 @@ class ParametricCurveViewer : public WsViewer
 public:
 	// class member variables
 	SnPolyEditor* _polyed;
-	SnLines2* _curve;
+	SnLines* _curve;
+	SnGroup* control_points;
+	SnTransform* t_cp;
 	float begin;
 	float end;
 	// Parameter t
 	float deltat; 
+
+	friend class ScnViewer;
 public:
 	// Class member functions
 	ParametricCurveViewer(SnNode* n, int x, int y, int w, int h);
 	~ParametricCurveViewer() { ws_exit();  }
 	//virtual void draw(GlRenderer* wr) override;
-
+	void add_model(SnGroup *parentg, SnShape* s, GsVec p);
+	void add_edges();
+	void draw_edges();
+	void draw_curves();
+	void build_scene();
 	void update_scene();
 	virtual int handle(const GsEvent& e) override;
 	virtual int handle_scene_event(const GsEvent& e) override;
@@ -73,6 +83,18 @@ static void my_polyed_callback(SnPolyEditor* pe, enum SnPolyEditor::Event e, int
 	}
 }
 
+static void control_points_callback(SnManipulator* pe, const GsEvent& e, void *pid)
+{
+	ParametricCurveViewer* v = (ParametricCurveViewer*)pe->userdata();
+
+	switch (e.type)
+	{
+		case GsEvent::Drag: {
+			v->update_scene();
+		}
+	}
+}
+
 static float C(int n, int i) {
 	float _n = (float)(gs_fact(n));
 	float _i = (float)(gs_fact(i));
@@ -81,9 +103,9 @@ static float C(int n, int i) {
 }
 
 // Go to office hours to check on my curves
-GsPnt2 eval_bezier(float t, const GsArray<GsPnt2>& P)
+GsPnt eval_bezier(float t, const GsArray<GsPnt>& P)
 {
-	GsPnt2 point;
+	GsPnt point;
 
 	// Calculating and will use in the bernstein polynomials
 	float diff = 1.0f - t;
@@ -105,7 +127,7 @@ GsPnt2 eval_bezier(float t, const GsArray<GsPnt2>& P)
 	return point;
 }
 
-GsPnt2 crspline(float t, const GsArray <GsPnt2>& P)
+GsPnt2 crspline(float t, const GsArray <GsPnt>& P)
 {
 	GsPnt2 point;
 
@@ -123,7 +145,7 @@ GsPnt2 crspline(float t, const GsArray <GsPnt2>& P)
 
 	P2 = P[p + 2] - (Ii / 3.0f);
 
-	GsArray<GsPnt2> c_p = GsArray<GsPnt2>(4);
+	GsArray<GsPnt> c_p = GsArray<GsPnt>(4);
 
 	// (i+1)
 	c_p[0] = P[p + 1];
@@ -142,6 +164,15 @@ GsPnt2 crspline(float t, const GsArray <GsPnt2>& P)
 	return point;
 }
 
+static GsPnt getPosition(const GsMat& m) {
+	float x, y, z;
+	x = m.e14;
+	y = m.e24;
+	z = m.e34;
+
+	return GsPnt(x, y, z);
+}
+
 ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int h) : WsViewer(x, y, w, h, "Parametric Curve View")
 {
 	if (!SV) gsout.fatal("Scence view has to be created first");
@@ -150,44 +181,192 @@ ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int
 
 	view_all();
 
-	rootg()->add(_polyed = new SnPolyEditor);
-	rootg()->add(_curve = new SnLines2);
-
-	_curve->color(GsColor::darkgreen);
-	_curve->line_width(2.0f);
-
-	// set initial control polygon:
-	_polyed->callback(my_polyed_callback, this);
-	_polyed->max_polygons(1);
-	_polyed->solid_drawing(0);
-	GsPolygon& P = _polyed->polygons()->push();
-	P.setpoly("-2 -2  -1 1  1 0  2 -2");
-	P.open(true);
-
 	begin = 0.0f;
 	end = 1.0f;
 	deltat = 0.01f;
 
-	update_scene();
+	build_scene();
+	add_edges();
 
+	update_scene();
 	show();
+}
+
+void ParametricCurveViewer::draw_curves()
+{
+	_curve->init();
+
+	// GsPolygon& P = _polyed->polygon(0);
+
+	// Just extracted our control points group
+	SnGroup* g = rootg()->get<SnGroup>(0);
+
+	// That is because our first element in the group is a transform
+	GsArray<GsPnt> cp = GsArray<GsPnt>(g->size() - 1);
+
+	for (int i = 1, j = 0; i < g->size(); ++i, ++j)
+	{
+
+		// In the the sub-group, theres another sub-sub-group and the 0th element 
+		// of that sub-sub-group is our primitive
+		SnManipulator* p = g->get<SnManipulator>(i);
+		GsMat& m = p->mat();
+		cp[j] = getPosition(m);
+
+	}
+
+	_curve->begin_polyline();
+
+	end = (float)(cp.size() - 3);
+
+	for (float t = begin; t <= end; t += 0.01f)
+	{
+		_curve->push(crspline(t, cp));
+	}
+	_curve->end_polyline();
+}
+
+void ParametricCurveViewer::add_edges()
+{
+	SnGroup* edges = new SnGroup;
+	SnGroup* g; 
+	SnLines* s;
+
+	// the first group in root is the control points
+	size_t n = rootg()->get<SnGroup>(0)->size() - 1;
+	float w = 2.0f;
+
+	for (int i = 0; i < n; ++i) {
+		g = new SnGroup;
+		s = new SnLines;
+
+		s->line_width(w);
+		s->color(GsColor::darkred);
+
+		g->add(s);
+		edges->add(g);
+	}
+
+	edges->separator(true);
+	rootg()->add(edges);
+}
+
+void ParametricCurveViewer::draw_edges()
+{
+	// Prefetch the edges
+	SnGroup* edges = rootg()->get<SnGroup>(2);
+	
+	// Prefetch the control points
+	SnGroup* cp = rootg()->get<SnGroup>(0);
+
+	size_t n = edges->size();
+
+	SnLines* s;
+
+	// j = 1 because the 0th element is our transform
+	for (int i = 0, j = 1; i < n; ++i, ++j)
+	{
+		
+
+		if (j + 1 <= n) {
+
+			// Get the positions of our control points
+
+			GsMat& m1 = cp->get<SnManipulator>(j)->mat();
+			GsMat& m2 = cp->get<SnManipulator>(j + 1)->mat();
+			
+			GsPnt p1 = getPosition(m1);
+			GsPnt p2 = getPosition(m2);
+
+			s = edges->get<SnGroup>(i)->get<SnLines>(0);
+
+			s->init();
+
+			s->begin_polyline();
+
+			s->push(p1);
+			s->push(p2);
+
+			s->end_polyline();
+
+
+		}
+
+	}
+}
+
+void ParametricCurveViewer::add_model(SnGroup* parentg, SnShape* s, GsVec p)
+{
+	SnManipulator* manip = new SnManipulator;
+	GsMat m;
+	m.translation(p);
+	manip->initial_mat(m);
+	manip->callback(control_points_callback, this);
+
+	SnGroup* g = new SnGroup;
+
+	SnLines* l = new SnLines;
+	l->color(GsColor::green);
+
+	g->add(s);
+	g->add(l);
+
+	manip->child(g);
+	parentg->add(manip);
+}
+
+// We will Place our Control Polygons in here
+void ParametricCurveViewer::build_scene()
+{
+	SnGroup* lines = new SnGroup;
+
+	
+	lines->add(_curve = new SnLines);
+
+	_curve->color(GsColor::darkgreen);
+	_curve->line_width(2.0f);
+
+	control_points = new SnGroup;
+
+	// Adding our transform to the group before we add our control points
+	// This will be our 0th element in the group too
+	control_points->add(t_cp = new SnTransform);
+	
+	// We only want the transform to affect the control points group
+	control_points->separator(true);
+
+	SnPrimitive* p;
+
+	/**
+		First set of control points
+	*/
+	p = new SnPrimitive(GsPrimitive::Capsule, 0.15f, 0.15f, 0.01f);
+	p->prim().material.diffuse = GsColor::blue;
+	add_model(control_points, p, GsVec(-2, -2, 0));
+
+	p = new SnPrimitive(GsPrimitive::Capsule, 0.15f, 0.15f, 0.01f);
+	p->prim().material.diffuse = GsColor::blue;
+	add_model(control_points, p, GsVec(-1, 0, 0));
+
+	p = new SnPrimitive(GsPrimitive::Capsule, 0.15f, 0.15f, 0.01f);
+	p->prim().material.diffuse = GsColor::blue;
+	add_model(control_points, p, GsVec(1, 0, 0));
+
+	p = new SnPrimitive(GsPrimitive::Capsule, 0.15f, 0.15f, 0.01f);
+	p->prim().material.diffuse = GsColor::blue;
+	add_model(control_points, p, GsVec(2, -2, 0));
+
+	// Append to the root
+	rootg()->add(control_points);
+	rootg()->add(lines);
 }
 
 void ParametricCurveViewer::update_scene()
 {
-	_curve->init();
 
-	GsPolygon& P = _polyed->polygon(0);
-
-	_curve->begin_polyline();
-
-	end = (float)(P.size() - 3);
-
-	for (float t = begin; t <= end; t += 0.01f)
-	{
-		_curve->push(crspline(t, P));
-	}
-	_curve->end_polyline();
+	draw_edges();
+	draw_curves();
+	
 }
 
 int ParametricCurveViewer::handle(const GsEvent& e)
@@ -213,7 +392,6 @@ ScnViewer::ScnViewer(SnNode* n, int x, int y, int w, int h) : WsViewer(x, y, w, 
 {
 
 	cmd(WsViewer::VCmdAxis);
-
 	view_all();
 	build_scene();
 	show();
@@ -229,6 +407,18 @@ int ScnViewer::handle(const GsEvent& e)
 		{
 			render();
 			return 1;
+		}
+		if (e.key == GsEvent::KeyEnter)
+		{
+			try {
+				//PCV->_curve->init();
+				PCV->_curve->color(GsColor::random());
+				PCV->update_scene();
+				PCV->render();
+			}
+			catch (...) {
+				gsout << "didn't work" << gsnl;
+			}
 		}
 	}
 
@@ -258,7 +448,7 @@ void ScnViewer::build_scene() {
 		//g->add(model[i]);		
 	}
 
-
+	
 	if (!model[0]->model()->load("../Town/town2.obj"))
 	{
 
