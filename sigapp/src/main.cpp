@@ -46,6 +46,7 @@ public:
 	void add_model(SnGroup *parentg, SnShape* s, GsVec p);
 	void add_edges();
 	void draw_edges();
+	GsPnt evalBezierUV(const GsArray<GsPnt>& cp, float u, float v);
 	void draw_curves();
 	void build_scene();
 	void update_scene();
@@ -192,36 +193,56 @@ ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int
 	show();
 }
 
+GsPnt ParametricCurveViewer::evalBezierUV(const GsArray<GsPnt>& cp, float u, float v)
+{
+	GsArray<GsPnt> c = GsArray<GsPnt>(1);
+
+
+	// calculate new control point in the u
+	c[0] = eval_bezier(u, cp);
+
+	// calcualate new control point in the v
+	return eval_bezier(v, c);
+}
+
 void ParametricCurveViewer::draw_curves()
 {
-	_curve->init();
-
-	// GsPolygon& P = _polyed->polygon(0);
+	
 
 	// Just extracted our control points group
 	SnGroup* g = rootg()->get<SnGroup>(0);
 
-	// That is because our first element in the group is a transform
+	// The size of our control points is N-1 because our first element in the group is a transform
 	GsArray<GsPnt> cp = GsArray<GsPnt>(g->size() - 1);
 
 	for (int i = 1, j = 0; i < g->size(); ++i, ++j)
 	{
 
-		// In the the sub-group, theres another sub-sub-group and the 0th element 
-		// of that sub-sub-group is our primitive
+		// Store the control points
 		SnManipulator* p = g->get<SnManipulator>(i);
 		GsMat& m = p->mat();
 		cp[j] = getPosition(m);
 
 	}
 
+	_curve->init();
+
 	_curve->begin_polyline();
 
 	end = (float)(cp.size() - 3);
 
-	for (float t = begin; t <= end; t += 0.01f)
+
+	// Goal, figure out a way how to do crspline with u,v 
+	/*for (float t = begin; t <= end; t += 0.01f)
 	{
-		_curve->push(crspline(t, cp));
+		_curve->push((t, cp));
+	}*/
+
+	int N = 16;
+	for (int i = 0; i <= N; ++i) {
+		for (int j = 0; j <= N; ++j) {
+			_curve->push( evalBezierUV( cp, i / float(N),  j / float(N)) );
+		}
 	}
 	_curve->end_polyline();
 }
