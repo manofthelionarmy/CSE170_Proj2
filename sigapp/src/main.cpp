@@ -5,6 +5,8 @@
 
 # include <sigogl/ws_viewer.h>
 # include <sigogl/ws_run.h>
+#include<sig/sn_transform.h>
+
 
 
 
@@ -45,6 +47,7 @@ public:
 	~ScnViewer() { ws_exit(); }
 	virtual int handle(const GsEvent& e) override;
 	virtual int handle_scene_event(const GsEvent& e) override;
+	void build_scene();
 };
 
 ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int h) : WsViewer(x, y, w, h, "Parametric Curve View")
@@ -83,7 +86,7 @@ ScnViewer::ScnViewer(SnNode* n, int x, int y, int w, int h) : WsViewer(x, y, w, 
 	cmd(WsViewer::VCmdAxis);
 
 	view_all();
-
+	build_scene();
 	show();
 }
 
@@ -108,6 +111,48 @@ int ScnViewer::handle(const GsEvent& e)
 int ScnViewer::handle_scene_event(const GsEvent& e)
 {
 	return WsViewer::handle_scene_event(e);
+}
+
+void ScnViewer::build_scene() {
+	SnGroup* g = new SnGroup; //to hold all the models and transformations
+	SnModel* model[1];		//to hold all the models 
+	SnTransform* t[1];		//to hold all the transformations 
+	GsMat m[1];
+	GsBox b0, b1, b2;
+	
+
+
+	for (int i = 0; i < 1; i++)
+	{
+		model[i] = new SnModel;
+		t[i] = new SnTransform;
+		//g->add(model[i]);		
+	}
+
+
+	if (!model[0]->model()->load("../Town/town2.obj"))
+	{
+
+		gsout << "poly.obj was not loaded" << gsnl;
+
+	}
+
+	//model[1]->model()->centralize();
+	model[0]->model()->get_bounding_box(b0);
+	t[0] = new SnTransform;
+	m[0].translation(GsVec(0.0f, 0.0f, 0.0f));
+	t[0]->set(m[0]);
+
+
+	for (int i = 0; i < 1; i++)
+	{
+		g->add(t[i]);
+		g->add(model[i]);
+	}
+
+
+	rootg()->add(g);
+
 }
 
 int main ( int argc, char** argv )

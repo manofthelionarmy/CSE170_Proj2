@@ -9,6 +9,14 @@
 
 # include <sigogl/ws_run.h>
 
+SnGroup* g = new SnGroup; //to hold all the models and transformations
+SnModel* model[1];		//to hold all the models 
+SnTransform* t[1];		//to hold all the transformations 
+GsMat m[1];
+GsBox b0, b1, b2;
+
+
+
 MyViewer::MyViewer ( int x, int y, int w, int h, const char* l ) : WsViewer(x,y,w,h,l)
 {
 	_nbut=0;
@@ -58,7 +66,7 @@ void MyViewer::add_model ( SnShape* s, GsVec p )
 
 void MyViewer::build_scene ()
 {
-	SnPrimitive* p;
+	/*SnPrimitive* p;
 
 	p = new SnPrimitive(GsPrimitive::Box,1,3,1);
 	p->prim().material.diffuse=GsColor::yellow;
@@ -79,6 +87,39 @@ void MyViewer::build_scene ()
 	p = new SnPrimitive(GsPrimitive::Ellipsoid,2.0,0.5);
 	p->prim().material.diffuse=GsColor::green;
 	add_model ( p, GsVec(-8,0,0) );
+*/
+
+	for (int i = 0; i < 1; i++)
+	{
+		model[i] = new SnModel;
+		t[i] = new SnTransform;
+		//g->add(model[i]);		
+	}
+
+
+	if (!model[0]->model()->load("../Town/body.obj")) 
+	{
+
+		gsout << "city.obj was not loaded" << gsnl;
+
+	}
+
+	//model[1]->model()->centralize();
+	model[0]->model()->get_bounding_box(b0);
+	t[0] = new SnTransform;
+	m[0].translation(GsVec(0.0f, 0.0f, 0.0f));
+	t[0]->set(m[0]);
+
+
+	for (int i = 0; i < 1; i++)
+	{
+		g->add(t[i]);
+		g->add(model[i]);
+	}
+
+
+	rootg()->add(g);
+
 }
 
 // Below is an example of how to control the main loop of an animation:
