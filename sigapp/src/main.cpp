@@ -71,6 +71,16 @@ public:
 	void build_scene();
 };
 
+
+static GsPnt getPosition(const GsMat& m) {
+	float x, y, z;
+	x = m.e14;
+	y = m.e24;
+	z = m.e34;
+
+	return GsPnt(x, y, z);
+}
+
 /**
 	An important callback function to handle adding new control points
 */
@@ -94,6 +104,84 @@ static void control_points_callback(SnManipulator* pe, const GsEvent& e, void *p
 			v->update_scene();
 		}
 	}
+}
+
+static void line_callback(SnManipulator* pe, const GsEvent& e, void* pid)
+{
+	ParametricCurveViewer* v = (ParametricCurveViewer*)pe->userdata();
+
+	switch (e.button1) {
+		case 1: {
+			
+			GsPnt clicked = e.mousep;
+
+			GsArray<GsPnt> cp; 
+
+			// need to copy all of the cp into an array
+			SnGroup* g = v->rootg()->get<SnGroup>(0)->get<SnGroup>(1);
+
+			// copy points
+			for (int i = 0; i < g->size(); ++i) {
+				GsMat& m = g->get<SnManipulator>(i)->mat();
+
+				cp.push(getPosition(m));
+			}
+
+			// Remove edges; depend on our control points, so we need to re-add them later
+			v->rootg()->remove(2);
+
+			// Then remove the control points
+			if (v->rootg()->get<SnGroup>(0)->remove(1) == 0) {
+
+				v->control_points = new SnGroup;
+			}
+
+			// Insert the mouse click in to the array of our control points
+			for (int i = 0; i + 1 < cp.size(); ++i) {
+				
+				GsPnt p0 = cp[i];
+				GsPnt p1 = cp[i + 1];
+
+				// if clicked is greater than p0 and clicked is less than p1
+				if (GsVec::compare(clicked, p0) == 1 && GsVec::compare(clicked, p1) == -1)
+				{
+					GsPnt& n_p = cp.insert(i + 1, 1);
+					
+					n_p = clicked;
+
+					break;
+				}
+			}
+
+
+			// Use the array of our control points to insert new primitives
+			SnPrimitive* p;
+
+			
+			
+			for (int i = 0; i < cp.size(); ++i) {
+
+				p = new SnPrimitive(GsPrimitive::Capsule, 0.15f, 0.15f, 0.01f);
+				p->prim().material.diffuse = GsColor::blue;
+				v->add_model(v->control_points, p, cp[i]);
+			}
+
+			// add the control points to our group
+			v->rootg()->get<SnGroup>(0)->add(v->control_points);
+
+
+			// add the edges
+			v->add_edges();
+
+			//update the scene
+
+			v->update_scene();
+
+			// v->render();
+			
+		}
+	}
+	
 }
 
 static float C(int n, int i) {
@@ -165,15 +253,6 @@ GsPnt2 crspline(float t, const GsArray <GsPnt>& P)
 	return point;
 }
 
-static GsPnt getPosition(const GsMat& m) {
-	float x, y, z;
-	x = m.e14;
-	y = m.e24;
-	z = m.e34;
-
-	return GsPnt(x, y, z);
-}
-
 ParametricCurveViewer::ParametricCurveViewer(SnNode* n, int x, int y, int w, int h) : WsViewer(x, y, w, h, "Parametric Curve View")
 {
 	if (!SV) gsout.fatal("Scence view has to be created first");
@@ -209,13 +288,13 @@ void ParametricCurveViewer::draw_curves()
 {
 	
 
-	// Just extracted our control points group
-	SnGroup* g = rootg()->get<SnGroup>(0);
+	// Just extracted our control points group; The 2nd item in our group is our control points
+	SnGroup* g = rootg()->get<SnGroup>(0)->get<SnGroup>(1);
 
 	// The size of our control points is N-1 because our first element in the group is a transform
-	GsArray<GsPnt> cp = GsArray<GsPnt>(g->size() - 1);
+	GsArray<GsPnt> cp = GsArray<GsPnt>(g->size());
 
-	for (int i = 1, j = 0; i < g->size(); ++i, ++j)
+	for (int i = 0, j = 0; i < g->size(); ++i, ++j)
 	{
 
 		// Store the control points
@@ -252,20 +331,31 @@ void ParametricCurveViewer::add_edges()
 	SnGroup* edges = new SnGroup;
 	SnGroup* g; 
 	SnLines* s;
+	SnManipulator* manip;
 
-	// the first group in root is the control points
-	size_t n = rootg()->get<SnGroup>(0)->size() - 1;
+	// the first group in root is the parent points. The second group in parent points is control points
+	size_t n = rootg()->get<SnGroup>(0)->get<SnGroup>(1)->size();
 	float w = 2.0f;
 
 	for (int i = 0; i < n; ++i) {
 		g = new SnGroup;
 		s = new SnLines;
 
+		// May have to add SnManipulator
+		manip = new SnManipulator;
+		
+		// add a call back
+		manip->callback(line_callback, this);
+		manip->draw_box(false);
 		s->line_width(w);
 		s->color(GsColor::darkred);
 
 		g->add(s);
-		edges->add(g);
+
+		
+
+		manip->child(g);
+		edges->add(manip);
 	}
 
 	edges->separator(true);
@@ -278,18 +368,18 @@ void ParametricCurveViewer::draw_edges()
 	SnGroup* edges = rootg()->get<SnGroup>(2);
 	
 	// Prefetch the control points
-	SnGroup* cp = rootg()->get<SnGroup>(0);
+	SnGroup* cp = rootg()->get<SnGroup>(0)->get<SnGroup>(1);
 
 	size_t n = edges->size();
 
 	SnLines* s;
 
 	// j = 1 because the 0th element is our transform
-	for (int i = 0, j = 1; i < n; ++i, ++j)
+	for (int i = 0, j = 0; i < n; ++i, ++j)
 	{
 		
 
-		if (j + 1 <= n) {
+		if (j + 1 < n) {
 
 			// Get the positions of our control points
 
@@ -299,7 +389,7 @@ void ParametricCurveViewer::draw_edges()
 			GsPnt p1 = getPosition(m1);
 			GsPnt p2 = getPosition(m2);
 
-			s = edges->get<SnGroup>(i)->get<SnLines>(0);
+			s = edges->get<SnManipulator>(i)->child<SnGroup>()->get<SnLines>(0);
 
 			s->init();
 
@@ -341,6 +431,7 @@ void ParametricCurveViewer::build_scene()
 {
 	SnGroup* lines = new SnGroup;
 
+	SnGroup* parent_points = new SnGroup;
 	
 	lines->add(_curve = new SnLines);
 
@@ -349,12 +440,8 @@ void ParametricCurveViewer::build_scene()
 
 	control_points = new SnGroup;
 
-	// Adding our transform to the group before we add our control points
-	// This will be our 0th element in the group too
-	control_points->add(t_cp = new SnTransform);
-	
-	// We only want the transform to affect the control points group
-	control_points->separator(true);
+	parent_points->add(t_cp = new SnTransform);
+	parent_points->separator(true);
 
 	SnPrimitive* p;
 
@@ -377,8 +464,12 @@ void ParametricCurveViewer::build_scene()
 	p->prim().material.diffuse = GsColor::blue;
 	add_model(control_points, p, GsVec(2, -2, 0));
 
-	// Append to the root
-	rootg()->add(control_points);
+
+	parent_points->add(control_points);
+	// Append to the root; the first item at the root
+	rootg()->add(parent_points);
+
+	// our bezier curve; the second item at the root
 	rootg()->add(lines);
 }
 
